@@ -1,6 +1,7 @@
 from flask import Flask ,request 
 from flask_sqlalchemy import SQLAlchemy
-
+from schema import UserSchema , UserUpdateSchema
+from marshmallow import ValidationError
 
 app = Flask(__name__)
 
@@ -23,11 +24,14 @@ class User(db.Model):
             "age": self.age
         }
 
+user_schema= UserSchema()
+users_schema = UserSchema(many=True)
+update_schema =UserUpdateSchema()
 
 @app.get("/")
 def get_all_users():
     users = User.query.all()
-    return [user.to_dict() for user in users]
+    return users_schema.dump(users)
 
 @app.get("/<string:id>")
 def get_one_users(id):
@@ -35,29 +39,43 @@ def get_one_users(id):
     if user is None:
         return {"error": "User not found"}, 404
 
-    return user.to_dict()
+    return user_schema.dump(user)
 
 @app.put("/<string:id>")
 def edit_one_users(id):
     request_data = request.get_json()
+    try:
+        data = update_schema.load(request_data)
+    except ValidationError as err:
+        return {"message": "Input error", "errors": err.messages}, 400
+    
     user = User.query.get(id)
     if user is None:
         return {"error": "User not found"}, 404
+    
+    if "name" in data:
+        user.name = data["name"]
+    if "age" in data:
+        user.age = data["age"]
 
-    user.name =request_data["name"]
-    user.age = request_data["age"]
     try:
         db.session.commit()
     except:
         db.session.rollback()
         return {"error": "Database error"}, 500
 
-    return user.to_dict()
+    return user_schema.dump(user)
 
 
 @app.post("/")
 def add_user():
-    data = request.get_json()
+    request_data = request.get_json()
+
+    try:
+        data = user_schema.load(request_data)
+    except ValidationError as err:
+        return {"message": "Input error", "errors": err.messages}, 400
+    
     name = data["name"]
     age = data["age"] 
     new_user = User(name=name, age=age)
@@ -68,7 +86,7 @@ def add_user():
         db.session.rollback()
         return {"error": "Database error"}, 500
 
-    return new_user.to_dict()
+    return user_schema.dump(new_user)
 
 @app.delete("/<string:id>")
 def delete_one_user(id):
